@@ -50,7 +50,7 @@ class DataModule(pl.LightningDataModule):
         # split data
         train_validation_dataset = self.datasets['train'].train_test_split(test_size=0.1)
         self.train_dataset = train_validation_dataset['train']
-        self.validation_dataset = train_validation_dataset['train']
+        self.validation_dataset = train_validation_dataset['test']
         self.test_dataset = self.datasets['test']
 
     def train_dataloader(self):
