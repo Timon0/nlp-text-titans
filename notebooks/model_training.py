@@ -11,6 +11,7 @@ from pytorch_lightning import Trainer, seed_everything
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from peft import LoraConfig, get_peft_model, prepare_model_for_int8_training, TaskType
 
 class DataModule(pl.LightningDataModule):
     def  __init__(self, model_name, batch_size: int = 32):
@@ -33,23 +34,19 @@ class DataModule(pl.LightningDataModule):
         self.datasets = self.datasets.map(self.tokenize_data, batched=True)
 
         # remove unused columns
-        self.datasets = self.datasets.remove_columns(['humor', 'prompt', 'target'])
+        self.datasets = self.datasets.remove_columns(['humor', 'context', 'target'])
 
         # set correct format
         self.datasets.set_format(type="torch")
 
     def tokenize_data(self, datasets, padding = "max_length"):
-        # The maximum total input sequence length after tokenization. 
-        # Sequences longer than this will be truncated, sequences shorter will be padded.
         
 
-        inputs = datasets["context"]
-
         # tokenize inputs
-        model_inputs = self.tokenizer(inputs, max_length=512, padding=padding, truncation=True, return_tensors="pt")
+        model_inputs = self.tokenizer(list(map(str, datasets['context'])), max_length=512, padding=padding, truncation=True, return_tensors="pt")
 
         # Tokenize targets with the `text_target` keyword argument
-        labels = self.tokenizer(text_target=datasets['target'], max_length=512, padding=padding, truncation=True, return_tensors="pt")
+        labels = self.tokenizer(text_target=list(map(str, datasets['target'])), max_length=512, padding=padding, truncation=True, return_tensors="pt")
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
@@ -87,7 +84,16 @@ class Model(pl.LightningModule):
 
         self.save_hyperparameters()
 
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="auto")
+        lora_config = LoraConfig(
+            r=16,
+            lora_alpha=32,
+            target_modules=["q", "v"],
+            lora_dropout=0.05,
+            bias="none",
+            task_type=TaskType.SEQ_2_SEQ_LM
+        )        
+        native_model = AutoModelForSeq2SeqLM.from_pretrained(model_name, device_map="auto")
+        self.model = get_peft_model(native_model, lora_config)
 
     def forward(self, batch):
         return self.model(**batch)
@@ -110,13 +116,13 @@ class Model(pl.LightningModule):
         # accuracy = (labels == predictions).float().mean()
 
         # compute f1 and exact match
-        f1 = self.compute_f1(self.tokenizer.batch_decode(predictions), self.tokenizer.batch_decode(labels))
+        #f1 = self.compute_f1(self.tokenizer.batch_decode(predictions), self.tokenizer.batch_decode(labels))
 
 
         self.log('val_loss', outputs.loss)
-        self.log('val_f1', f1)
+        #self.log('val_f1', f1)
         # the validation_step method expects a dictionary, which should at least contain the val_loss
-        return {'val_loss': outputs.loss, 'val_f1': f1}
+        return {'val_loss': outputs.loss}
 
     def compute_f1(predictions, labels):
         f1_scores = []
@@ -131,7 +137,7 @@ class Model(pl.LightningModule):
 
 
 if __name__ == "__main__":
-
+    torch.cuda.empty_cache()
     seed_everything(42, workers=True)
     
     # Hyperparams
@@ -144,7 +150,7 @@ if __name__ == "__main__":
         subscription_key = data['wandb']['subscription_key']
 
     wandb.login(key=subscription_key)
-    wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-2")
+    wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-lora-flan-small")
     
     # Training
     data_module = DataModule(model_name, batch_size)
