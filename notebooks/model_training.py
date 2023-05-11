@@ -26,7 +26,6 @@ class DataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load data
-        # TODO: Check filenames so they match!!
         self.datasets = load_dataset('csv', data_files={'train': './data/cleaned_with_context.csv',
                                                         'test': './data/cleaned_with_context_test.csv'})
 
@@ -132,9 +131,9 @@ class Model(pl.LightningModule):
 
 
 if __name__ == "__main__":
-    print('started')
+
     seed_everything(42, workers=True)
-    print('seeded')
+    
     # Hyperparams
     model_name = "google/flan-t5-small"
     batch_size = 32
@@ -146,7 +145,7 @@ if __name__ == "__main__":
 
     wandb.login(key=subscription_key)
     wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-2")
-    print('wandb done')
+    
     # Training
     data_module = DataModule(model_name, batch_size)
     model = Model(model_name)
