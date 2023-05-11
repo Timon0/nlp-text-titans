@@ -5,6 +5,7 @@ import pytorch_lightning.loggers
 import torch
 import wandb
 import numpy as np
+import scoring
 from datasets import load_dataset
 from pytorch_lightning import Trainer, seed_everything
 from torch.utils.data import DataLoader
@@ -19,13 +20,15 @@ class DataModule(pl.LightningDataModule):
         self.train_dataset = None
         self.datasets = None
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        # make sure the tokenizer truncates the beginning of the input, not the end
+        self.tokenizer.padding_side = "left"
         self.batch_size = batch_size
 
     def prepare_data(self):
         # load data
         # TODO: Check filenames so they match!!
-        self.datasets = load_dataset('csv', data_files={'train': './data/oasst1_train_cleaned.csv',
-                                                        'test': './data/oasst1_test_cleaned.csv'})
+        self.datasets = load_dataset('csv', data_files={'train': './data/cleaned_with_context.csv',
+                                                        'test': './data/cleaned_with_context_test.csv'})
 
         # tokenize
         self.datasets = self.datasets.map(self.tokenize_data, batched=True)
@@ -39,25 +42,15 @@ class DataModule(pl.LightningDataModule):
     def tokenize_data(self, datasets, padding = "max_length"):
         # The maximum total input sequence length after tokenization. 
         # Sequences longer than this will be truncated, sequences shorter will be padded.
-        tokenized_inputs = datasets.map(lambda x: self.tokenizer(x["prompt"], truncation=True), batched=True)
-        input_lenghts = [len(x) for x in tokenized_inputs["input_ids"]]
-        # take 85 percentile of max length for better utilization
-        max_source_length = int(np.percentile(input_lenghts, 85))
-
-        # The maximum total sequence length for target text after tokenization. 
-        # Sequences longer than this will be truncated, sequences shorter will be padded."
-        tokenized_targets = datasets.map(lambda x: self.tokenizer(x["text"], truncation=True), batched=True)
-        target_lenghts = [len(x) for x in tokenized_targets["input_ids"]]
-        # take 90 percentile of max length for better utilization
-        max_target_length = int(np.percentile(target_lenghts, 90))
+        
 
         inputs = datasets["context"]
 
         # tokenize inputs
-        model_inputs = self.tokenizer(inputs, max_length=max_source_length, padding=padding, truncation=True, return_tensors="pt")
+        model_inputs = self.tokenizer(inputs, max_length=512, padding=padding, truncation=True, return_tensors="pt")
 
         # Tokenize targets with the `text_target` keyword argument
-        labels = self.tokenizer(text_target=datasets['target'], max_length=max_target_length, padding=padding, truncation=True, return_tensors="pt")
+        labels = self.tokenizer(text_target=datasets['target'], max_length=512, padding=padding, truncation=True, return_tensors="pt")
 
         # If we are padding here, replace all tokenizer.pad_token_id in the labels by -100 when we want to ignore
         # padding in the loss.
@@ -113,14 +106,24 @@ class Model(pl.LightningModule):
         # Apart from the validation loss, we also want to track validation accuracy  to get an idea, what the
         # model training has achieved "in real terms".
         labels = batch['labels']
-        logits = outputs.logits
-        predictions = torch.argmax(logits, dim=-1)
-        accuracy = (labels == predictions).float().mean()
+        predictions = outputs.logits
+        # predictions = torch.argmax(logits, dim=-1)
+        # accuracy = (labels == predictions).float().mean()
+
+        # compute f1 and exact match
+        f1 = self.compute_f1(self.tokenizer.batch_decode(predictions), self.tokenizer.batch_decode(labels))
+
 
         self.log('val_loss', outputs.loss)
-        self.log('val_accuracy', accuracy)
+        self.log('val_f1', f1)
         # the validation_step method expects a dictionary, which should at least contain the val_loss
-        return {'val_loss': outputs.loss, 'val_accuracy': accuracy}
+        return {'val_loss': outputs.loss, 'val_f1': f1}
+
+    def compute_f1(predictions, labels):
+        f1_scores = []
+        for prediction, label in zip(predictions, labels):
+            f1_scores.append(scoring.compute_f1(prediction, label))
+        return np.array(f1_scores).mean()
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=5e-5)
@@ -128,11 +131,10 @@ class Model(pl.LightningModule):
         return optimizer
 
 
-# %%
 if __name__ == "__main__":
-
+    print('started')
     seed_everything(42, workers=True)
-
+    print('seeded')
     # Hyperparams
     model_name = "google/flan-t5-small"
     batch_size = 32
@@ -144,7 +146,7 @@ if __name__ == "__main__":
 
     wandb.login(key=subscription_key)
     wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-2")
-
+    print('wandb done')
     # Training
     data_module = DataModule(model_name, batch_size)
     model = Model(model_name)
