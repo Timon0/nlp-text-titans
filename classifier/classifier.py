@@ -40,7 +40,7 @@ class DataModule(pl.LightningDataModule):
         # remove unused columns
         self.datasets = self.datasets.remove_columns(['message_id', 'role', 'lang', 'humor', 'text'])
 
-        # set correct formt
+        # set correct format
         self.datasets.set_format(type="torch")
 
     def tokenize_data(self, datasets):
@@ -112,7 +112,7 @@ if __name__ == "__main__":
 
     # Hyperparams
     model_name = "distilbert-base-cased"
-    batch_size = 2
+    batch_size = 32
 
     # Logger
     with open("./config/config.json", "r") as jsonfile:
