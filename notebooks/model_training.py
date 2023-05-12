@@ -79,13 +79,13 @@ class DataModule(pl.LightningDataModule):
 
 
 class Model(pl.LightningModule):
-    def __init__(self, model_name):
+    def __init__(self, model_name, rank: int = 16):
         super().__init__()
 
         self.save_hyperparameters()
 
         lora_config = LoraConfig(
-            r=16,
+            r=rank,
             lora_alpha=32,
             target_modules=["q", "v"],
             lora_dropout=0.05,
@@ -141,8 +141,9 @@ if __name__ == "__main__":
     seed_everything(42, workers=True)
     
     # Hyperparams
-    model_name = "google/flan-t5-small"
-    batch_size = 32
+    model_name = "google/flan-t5-base"
+    batch_size = 8
+    lora_rank = 8
 
     # Logger
     with open("./config/config.json", "r") as jsonfile:
@@ -150,10 +151,10 @@ if __name__ == "__main__":
         subscription_key = data['wandb']['subscription_key']
 
     wandb.login(key=subscription_key)
-    wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-lora-flan-small")
+    wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-lora-flan")
     
     # Training
     data_module = DataModule(model_name, batch_size)
-    model = Model(model_name)
+    model = Model(model_name, lora_rank)
     trainer = Trainer(logger=wandb_logger, max_epochs=5)
     trainer.fit(model, datamodule=data_module)
