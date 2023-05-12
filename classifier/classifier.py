@@ -8,7 +8,8 @@ from datasets import load_dataset
 from pytorch_lightning import Trainer, seed_everything
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from transformers import AutoModelForSequenceClassification, AutoTokenizer
+from pytorch_lightning.callbacks import LearningRateMonitor
+from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
 
 
 def prepare_labels(dataset):
@@ -29,8 +30,8 @@ class DataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load data
-        self.datasets = load_dataset('csv', data_files={'train': './data/oasst1_train_cleaned.csv',
-                                                        'test': './data/oasst1_test_cleaned.csv'})
+        self.datasets = load_dataset('csv', data_files={'train': './data/oasst1_train_en_cleaned.csv',
+                                                        'test': './data/oasst1_test_en_cleaned.csv'})
         # prepare labels
         self.datasets = self.datasets.map(prepare_labels)
 
@@ -67,12 +68,14 @@ class DataModule(pl.LightningDataModule):
 
 
 class Model(pl.LightningModule):
-    def __init__(self, model_name):
+    def __init__(self, model_name, batch_size, learning_rate):
         super().__init__()
 
         self.save_hyperparameters()
 
         self.classifier = AutoModelForSequenceClassification.from_pretrained(model_name, num_labels=2)
+        self.learning_rate = learning_rate
+        self.batch_size = batch_size
 
     def forward(self, batch):
         return self.classifier(**batch)
@@ -87,7 +90,7 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_nb):
         outputs = self(batch)
 
-        # Apart from the validation loss, we also want to track validation accuracy  to get an idea, what the
+        # Apart from the validation loss, we also want to track validation accuracy to get an idea, what the
         # model training has achieved "in real terms".
         labels = batch['labels']
         logits = outputs.logits
@@ -99,10 +102,23 @@ class Model(pl.LightningModule):
         # the validation_step method expects a dictionary, which should at least contain the val_loss
         return {'val_loss': outputs.loss, 'val_accuracy': accuracy}
 
-    def configure_optimizers(self):
-        optimizer = AdamW(self.parameters(), lr=5e-5)
+    def num_steps(self) -> int:
+        """Get number of steps"""
+        train_dataloader = self.trainer.datamodule.train_dataloader()
+        dataset_size = len(train_dataloader.dataset)
+        num_steps = dataset_size * self.trainer.max_epochs // self.batch_size
+        return num_steps
 
-        return optimizer
+    def configure_optimizers(self):
+        optimizer = AdamW(self.parameters(), lr=self.hparams.learning_rate)
+
+        scheduler = get_linear_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=self.num_steps() * 0.1,
+            num_training_steps=self.num_steps(),
+        )
+        scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
+        return [optimizer], [scheduler]
 
 
 # %%
@@ -113,6 +129,7 @@ if __name__ == "__main__":
     # Hyperparams
     model_name = "distilbert-base-cased"
     batch_size = 32
+    learning_rate = 2e-5
 
     # Logger
     with open("./config/config.json", "r") as jsonfile:
@@ -124,6 +141,7 @@ if __name__ == "__main__":
 
     # Training
     data_module = DataModule(model_name, batch_size)
-    model = Model(model_name)
-    trainer = Trainer(logger=wandb_logger, max_epochs=5)
+    model = Model(model_name, batch_size, learning_rate)
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+    trainer = Trainer(logger=wandb_logger, max_epochs=5, callbacks=[lr_monitor])
     trainer.fit(model, datamodule=data_module)
