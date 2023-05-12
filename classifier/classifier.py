@@ -14,7 +14,7 @@ from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_
 
 def prepare_labels(dataset):
     humor = dataset['humor']
-    label = 1 if humor > 0 else 0
+    label = 1 if humor > 0.3 else 0
     return {'labels': label}
 
 
