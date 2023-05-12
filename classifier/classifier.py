@@ -102,23 +102,23 @@ class Model(pl.LightningModule):
         # the validation_step method expects a dictionary, which should at least contain the val_loss
         return {'val_loss': outputs.loss, 'val_accuracy': accuracy}
 
-    def num_steps(self) -> int:
-        """Get number of steps"""
-        train_dataloader = self.trainer.datamodule.train_dataloader()
-        dataset_size = len(train_dataloader.dataset)
-        num_steps = dataset_size * self.trainer.max_epochs // self.batch_size
-        return num_steps
-
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.hparams.learning_rate)
 
         scheduler = get_linear_schedule_with_warmup(
             optimizer,
-            num_warmup_steps=self.num_steps() * 0.1,
-            num_training_steps=self.num_steps(),
+            num_warmup_steps=self._num_steps() * 0.1,
+            num_training_steps=self._num_steps(),
         )
         scheduler = {"scheduler": scheduler, "interval": "step", "frequency": 1}
         return [optimizer], [scheduler]
+
+    def _num_steps(self) -> int:
+        """Get number of steps"""
+        train_dataloader = self.trainer.datamodule.train_dataloader()
+        dataset_size = len(train_dataloader.dataset)
+        num_steps = dataset_size * self.trainer.max_epochs // self.batch_size
+        return num_steps
 
 
 # %%
