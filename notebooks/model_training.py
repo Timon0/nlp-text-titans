@@ -114,15 +114,16 @@ class Model(pl.LightningModule):
 
     def validation_step(self, batch, batch_nb):
         outputs = self(batch)
-        inputs = self.tokenizer.decode(batch['input_ids'][0])
 
-        label_ids = batch['labels'][0]
-        # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occurs while
-        # decoding
-        label_ids[label_ids == -100] = self.tokenizer.pad_token_id
-
-        generated_ids = self.model.generate(**batch, max_new_tokens=200)
         if batch_nb < 3:
+            inputs = self.tokenizer.decode(batch['input_ids'][0])
+
+            label_ids = batch['labels'][0]
+            # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occurs while
+            # decoding
+            label_ids[label_ids == -100] = self.tokenizer.pad_token_id
+
+            generated_ids = self.model.generate(**batch, max_new_tokens=200)
             label = self.tokenizer.decode(label_ids)
             generated_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             columns = ["Input", "Label", "Prediction"]
