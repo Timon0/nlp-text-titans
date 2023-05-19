@@ -3,9 +3,10 @@ import json
 import pytorch_lightning as pl
 import pytorch_lightning.loggers
 import torch
+import torch.nn.functional as F
 import wandb
 import numpy as np
-from datasets import load_dataset
+from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
@@ -99,6 +100,8 @@ class Model(pl.LightningModule):
         self.model = get_peft_model(native_model, lora_config)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, truncation_side='left')
 
+        self.metric = load_metric('accuracy', 'f1')
+
     def forward(self, batch):
         return self.model(**batch)
 
@@ -111,23 +114,27 @@ class Model(pl.LightningModule):
 
     def validation_step(self, batch, batch_nb):
         outputs = self(batch)
+        inputs = self.tokenizer.decode(batch['input_ids'][0])
 
+        label_ids = batch['labels'][0]
+        # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occures while decoding
+        label_ids[label_ids == -100] = self.tokenizer.pad_token_id
+
+        generated_ids = self.model.generate(**batch, max_new_tokens=200)
         if batch_nb < 3:
-            inputs = self.tokenizer.decode(batch['input_ids'][0])
-
-            label_ids = batch['labels'][0]
-            # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occures while decoding
-            label_ids[label_ids == -100] = self.tokenizer.pad_token_id
             label = self.tokenizer.decode(label_ids)
-
-            generated_ids = self.model.generate(**batch, max_new_tokens=200)
-            generated_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            generated_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             columns = ["Input", "Label", "Prediction"]
-            data = [[inputs, label, generated_text]]
+            data = [[inputs, label, generated_text[0]]]
             self.logger.log_text(key=f"Sample-Epoch{self.current_epoch}-Batch{batch_nb}", columns=columns, data=data)
 
+        # Check accuracy and f1 score
+        padded_generated_ids = F.pad(generated_ids[0], (512 - generated_ids[0].shape[0], 0), "constant", 0)
+        final_score = self.metric.compute(predictions=padded_generated_ids, references=label_ids)
+
         self.log('val_loss', outputs.loss)
-        return {'val_loss': outputs.loss}
+        self.log('val_accuracy', final_score['accuracy'])
+        return {'val_loss': outputs.loss, 'val_accuracy': final_score['accuracy']}
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.hparams.learning_rate)
@@ -184,6 +191,7 @@ if __name__ == "__main__":
     trainer = Trainer(
         logger=wandb_logger,
         max_epochs=5,
+        log_every_n_steps=10,
         callbacks=[checkpoint_callback, lr_monitor]
     )
     trainer.fit(model, datamodule=data_module)

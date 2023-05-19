@@ -1,1 +1,1 @@
-pip install datasets transformers evaluate wandb pytorch-lightning peft
+pip install datasets transformers evaluate wandb pytorch-lightning peft scikit-klearn
