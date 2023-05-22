@@ -30,8 +30,8 @@ class DataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load data
-        self.datasets = load_dataset('csv', data_files={'train': './data/oasst1_train_en_cleaned.csv',
-                                                        'test': './data/oasst1_test_en_cleaned.csv'})
+        self.datasets = load_dataset('csv', data_files={'train': './data/oasst1_train_cleaned.csv',
+                                                        'test': './data/oasst1_test_cleaned.csv'})
         # prepare labels
         self.datasets = self.datasets.map(prepare_labels)
 
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     seed_everything(42, workers=True)
 
     # Hyperparams
-    model_name = "distilbert-base-cased"
+    model_name = "distilbert-base-multilingual-cased"
     batch_size = 32
     learning_rate = 2e-5
 
