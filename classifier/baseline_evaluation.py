@@ -14,7 +14,7 @@ if __name__ == "__main__":
     # Params
     baseline_models = ["bert-base-multilingual-cased", "distilbert-base-multilingual-cased"]
     model_name = baseline_models[0]
-    batch_size = 32
+    batch_size = 16
 
     # Logger
     with open("./config/config.json", "r") as jsonfile:
