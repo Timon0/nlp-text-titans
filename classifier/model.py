@@ -33,7 +33,7 @@ class DataModule(pl.LightningDataModule):
         self.datasets = self.datasets.map(self.tokenize_data, batched=True)
 
         # remove unused columns
-        self.datasets = self.datasets.remove_columns(['message_id', 'role', 'lang', 'humor', 'text'])
+        self.datasets = self.datasets.remove_columns(['message_id', 'role', 'lang', 'humor', 'text', 'review_count'])
 
         # set correct format
         self.datasets.set_format(type="torch")
