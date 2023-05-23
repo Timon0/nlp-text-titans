@@ -22,7 +22,6 @@ if __name__ == "__main__":
     with open("./config/config.json", "r") as jsonfile:
         data = json.load(jsonfile)
         subscription_key = data["wandb"]["subscription_key"]
-
     wandb.login(key=subscription_key)
     wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans")
 

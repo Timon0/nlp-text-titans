@@ -12,13 +12,12 @@ if __name__ == "__main__":
     seed_everything(42, workers=True)
 
     # Params
-    checkpoint_path = "/checkpoints/bert-base-multilingual-cased-batch16.ckpt"
+    checkpoint_path = "./checkpoints/bert-base-multilingual-cased-batch16.ckpt"
 
     # Logger
     with open("./config/config.json", "r") as jsonfile:
         data = json.load(jsonfile)
         subscription_key = data["wandb"]["subscription_key"]
-
     wandb.login(key=subscription_key)
     wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans")
 

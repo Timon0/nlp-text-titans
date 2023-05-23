@@ -62,7 +62,7 @@ class DataModule(pl.LightningDataModule):
 
 
 class Model(pl.LightningModule):
-    def __init__(self, model_name, batch_size, learning_rate):
+    def __init__(self, model_name, batch_size, learning_rate=2e-5):
         super().__init__()
 
         self.save_hyperparameters()
@@ -95,6 +95,21 @@ class Model(pl.LightningModule):
         self.log('val_accuracy', accuracy)
         # the validation_step method expects a dictionary, which should at least contain the val_loss
         return {'val_loss': outputs.loss, 'val_accuracy': accuracy}
+
+    def test_step(self, batch, batch_nb):
+        outputs = self(batch)
+
+        # Apart from the test loss, we also want to track test accuracy to get an idea, what the
+        # model training has achieved "in real terms".
+        labels = batch['labels']
+        logits = outputs.logits
+        predictions = torch.argmax(logits, dim=-1)
+        accuracy = (labels == predictions).float().mean()
+
+        self.log('test_loss', outputs.loss)
+        self.log('test_accuracy', accuracy)
+        # the validation_step method expects a dictionary, which should at least contain the val_loss
+        return {'test_loss': outputs.loss, 'test_accuracy': accuracy}
 
     def configure_optimizers(self):
         optimizer = AdamW(self.parameters(), lr=self.hparams.learning_rate)
