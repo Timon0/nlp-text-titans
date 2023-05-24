@@ -4,6 +4,7 @@ from datasets import load_dataset
 from torch.optim import AdamW
 from torch.utils.data import DataLoader
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, get_linear_schedule_with_warmup
+import os
 
 
 def prepare_labels(dataset):
@@ -24,8 +25,11 @@ class DataModule(pl.LightningDataModule):
 
     def prepare_data(self):
         # load data
-        self.datasets = load_dataset('csv', data_files={'train': './data/oasst1_train_cleaned.csv',
-                                                        'test': './data/oasst1_test_cleaned.csv'})
+        dirname = os.path.dirname(__file__)
+        self.datasets = load_dataset('csv',
+                                     data_files={'train': os.path.join(dirname, './data/oasst1_train_cleaned.csv'),
+                                                 'test': os.path.join(dirname, './data/oasst1_test_cleaned.csv')})
+
         # prepare labels
         self.datasets = self.datasets.map(prepare_labels)
 
@@ -93,7 +97,6 @@ class Model(pl.LightningModule):
 
         self.log('val_loss', outputs.loss)
         self.log('val_accuracy', accuracy)
-        # the validation_step method expects a dictionary, which should at least contain the val_loss
         return {'val_loss': outputs.loss, 'val_accuracy': accuracy}
 
     def test_step(self, batch, batch_nb):
@@ -108,7 +111,6 @@ class Model(pl.LightningModule):
 
         self.log('test_loss', outputs.loss)
         self.log('test_accuracy', accuracy)
-        # the validation_step method expects a dictionary, which should at least contain the val_loss
         return {'test_loss': outputs.loss, 'test_accuracy': accuracy}
 
     def configure_optimizers(self):
