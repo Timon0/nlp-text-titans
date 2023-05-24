@@ -13,6 +13,7 @@ from torch.optim import AdamW
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, get_linear_schedule_with_warmup
 from peft import LoraConfig, get_peft_model, prepare_model_for_int8_training, TaskType
+from sklearn.model_selection import train_test_split
 
 
 class DataModule(pl.LightningDataModule):
@@ -62,10 +63,17 @@ class DataModule(pl.LightningDataModule):
 
     def setup(self, stage: str):
         # split data
-        train_validation_dataset = self.datasets['train'].train_test_split(test_size=0.1)
-        self.train_dataset = train_validation_dataset['train']
-        self.validation_dataset = train_validation_dataset['test']
+        message_tree_ids = self.datasets['train']['message_tree_id']
+        train_ids, val_ids = train_test_split(list(set(message_tree_ids)), test_size=0.1)
+        print(len(train_ids))
+        print(len(val_ids))
+        self.train_dataset = self.datasets['train'].filter(lambda sample: sample['message_tree_id'] in train_ids)
+        self.validation_dataset = self.datasets['train'].filter(lambda sample: sample['message_tree_id'] in val_ids)
         self.test_dataset = self.datasets['test']
+
+        self.train_dataset = self.train_dataset.remove_columns(['message_tree_id'])
+        self.validation_dataset = self.validation_dataset.remove_columns(['message_tree_id'])
+        self.test_dataset = self.test_dataset.remove_columns(['message_tree_id'])
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset, batch_size=self.batch_size)
@@ -150,6 +158,7 @@ class Model(pl.LightningModule):
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
+    torch.set_float32_matmul_precision('high')
     seed_everything(42, workers=True)
 
     # Hyperparams
