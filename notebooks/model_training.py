@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import wandb
 import numpy as np
+import evaluate
 from datasets import load_dataset, load_metric
 from pytorch_lightning import Trainer, seed_everything
 from torch.utils.data import DataLoader
@@ -108,7 +109,7 @@ class Model(pl.LightningModule):
         self.model = get_peft_model(native_model, lora_config)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name, truncation_side='left')
 
-        # self.metric = load_metric('bleu')
+        self.metric = evaluate.load('rouge')
 
     def forward(self, batch):
         return self.model(**batch)
@@ -123,27 +124,32 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_nb):
         outputs = self(batch)
 
+        inputs = self.tokenizer.decode(batch['input_ids'][0])
+
+        label_ids = batch['labels']
+        # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occurs while
+        # decoding
+        label_ids[label_ids == -100] = self.tokenizer.pad_token_id
+
+        generated_ids = self.model.generate(**batch, max_new_tokens=200)
+        label = self.tokenizer.batch_decode(label_ids)
+        generated_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+
+        rouge = self.metric.compute(predictions=generated_text, references=label)
+
         if batch_nb < 3:
-            inputs = self.tokenizer.decode(batch['input_ids'][0])
-
-            label_ids = batch['labels'][0]
-            # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occurs while
-            # decoding
-            label_ids[label_ids == -100] = self.tokenizer.pad_token_id
-
-            generated_ids = self.model.generate(**batch, max_new_tokens=200)
-            label = self.tokenizer.decode(label_ids)
-            generated_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
             columns = ["Input", "Label", "Prediction"]
-            data = [[inputs, label, generated_text[0]]]
+            data = [[inputs, label[0], generated_text[0]]]
             self.logger.log_text(key=f"Sample-Epoch{self.current_epoch}-Batch{batch_nb}", columns=columns, data=data)
 
         # Check accuracy and f1 score
         # final_score = self.metric.compute(predictions=generated_ids[0], references=label_ids)
 
         self.log('val_loss', outputs.loss)
-        # self.log('val_accuracy', final_score['accuracy'])
-        return {'val_loss': outputs.loss}
+        self.log('val_rouge1', rouge['rouge1'])
+        self.log('val_rouge2', rouge['rouge2'])
+        self.log('val_rougeL', rouge['rougeL'])
+        return {'val_loss': outputs.loss, 'val_rouge1': rouge['rouge1'], 'val_rouge2': rouge['rouge2'], 'val_rougeL': rouge['rougeL']}
 
     def configure_optimizers(self):
         return AdamW(self.parameters(), lr=self.hparams.learning_rate)
@@ -162,8 +168,8 @@ if __name__ == "__main__":
     seed_everything(42, workers=True)
 
     # Hyperparams
-    model_name = "google/flan-t5-base"
-    batch_size = 4
+    model_name = "google/flan-t5-small"
+    batch_size = 12
     learning_rate = 1e-3
 
     # Logger
