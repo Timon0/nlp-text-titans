@@ -1,18 +1,9 @@
-import json
-
 import pytorch_lightning as pl
-import pytorch_lightning.loggers
-import torch
-import torch.nn.functional as F
-import wandb
-import numpy as np
 import evaluate
-from datasets import load_dataset, load_metric
-from pytorch_lightning import Trainer, seed_everything
+from datasets import load_dataset
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, get_linear_schedule_with_warmup
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
 from peft import LoraConfig, get_peft_model, prepare_model_for_int8_training, TaskType
 from sklearn.model_selection import train_test_split
 
@@ -66,8 +57,7 @@ class DataModule(pl.LightningDataModule):
         # split data
         message_tree_ids = self.datasets['train']['message_tree_id']
         train_ids, val_ids = train_test_split(list(set(message_tree_ids)), test_size=0.1)
-        print(len(train_ids))
-        print(len(val_ids))
+
         self.train_dataset = self.datasets['train'].filter(lambda sample: sample['message_tree_id'] in train_ids)
         self.validation_dataset = self.datasets['train'].filter(lambda sample: sample['message_tree_id'] in val_ids)
         self.test_dataset = self.datasets['test']
@@ -84,9 +74,6 @@ class DataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test_dataset, batch_size=self.batch_size)
-
-    def predict_dataloader(self):
-        pass
 
 
 class Model(pl.LightningModule):
@@ -124,8 +111,6 @@ class Model(pl.LightningModule):
     def validation_step(self, batch, batch_nb):
         outputs = self(batch)
 
-        inputs = self.tokenizer.decode(batch['input_ids'][0])
-
         label_ids = batch['labels']
         # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occurs while
         # decoding
@@ -138,6 +123,7 @@ class Model(pl.LightningModule):
         rouge = self.metric.compute(predictions=generated_text, references=label)
 
         if batch_nb < 3:
+            inputs = self.tokenizer.decode(batch['input_ids'][0])
             columns = ["Input", "Label", "Prediction"]
             data = [[inputs, label[0], generated_text[0]]]
             self.logger.log_text(key=f"Sample-Epoch{self.current_epoch}-Batch{batch_nb}", columns=columns, data=data)
@@ -151,55 +137,25 @@ class Model(pl.LightningModule):
         self.log('val_rougeL', rouge['rougeL'])
         return {'val_loss': outputs.loss, 'val_rouge1': rouge['rouge1'], 'val_rouge2': rouge['rouge2'], 'val_rougeL': rouge['rougeL']}
 
+    def test_step(self, batch, batch_nb):
+        outputs = self(batch)
+
+        label_ids = batch['labels']
+        # Replace -100 in the prediction with the pad token id in the tokenizer, otherwise an error occurs while
+        # decoding
+        label_ids[label_ids == -100] = self.tokenizer.pad_token_id
+
+        generated_ids = self.model.generate(**batch, max_new_tokens=200)
+        label = self.tokenizer.batch_decode(label_ids)
+        generated_text = self.tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+
+        rouge = self.metric.compute(predictions=generated_text, references=label)
+
+        self.log('test_loss', outputs.loss)
+        self.log('test_rouge1', rouge['rouge1'])
+        self.log('test_rouge2', rouge['rouge2'])
+        self.log('test_rougeL', rouge['rougeL'])
+        return {'test_loss': outputs.loss, 'test_rouge1': rouge['rouge1'], 'test_rouge2': rouge['rouge2'], 'test_rougeL': rouge['rougeL']}
+
     def configure_optimizers(self):
         return AdamW(self.parameters(), lr=self.hparams.learning_rate)
-
-    def _num_steps(self) -> int:
-        """Get number of steps"""
-        train_dataloader = self.trainer.datamodule.train_dataloader()
-        dataset_size = len(train_dataloader.dataset)
-        num_steps = dataset_size * self.trainer.max_epochs // self.batch_size
-        return num_steps
-
-
-if __name__ == "__main__":
-    torch.cuda.empty_cache()
-    torch.set_float32_matmul_precision('high')
-    seed_everything(42, workers=True)
-
-    # Hyperparams
-    model_name = "google/flan-t5-small"
-    batch_size = 12
-    learning_rate = 1e-3
-
-    # Logger
-    with open("./config/config.json", "r") as jsonfile:
-        data = json.load(jsonfile)
-        subscription_key = data['wandb']['subscription_key']
-
-    wandb.login(key=subscription_key)
-    wandb_logger = pytorch_lightning.loggers.WandbLogger(project="text-titans-lora-flan")
-
-    # Callbacks
-    checkpoint_callback = ModelCheckpoint(
-        dirpath='checkpoints',
-        filename=f"{model_name}-batch{batch_size}",
-        save_top_k=1,
-        verbose=True,
-        monitor="val_loss",
-        mode="min"
-    )
-    lr_monitor = LearningRateMonitor(logging_interval='step')
-
-    # Training
-    data_module = DataModule(model_name, batch_size)
-    model = Model(model_name, batch_size, learning_rate)
-    # model = Model.load_from_checkpoint(checkpoint_path="checkpoint/epoch=4-step=26440.ckpt")
-
-    trainer = Trainer(
-        logger=wandb_logger,
-        max_epochs=5,
-        callbacks=[checkpoint_callback],
-        accumulate_grad_batches=5
-    )
-    trainer.fit(model, datamodule=data_module)
