@@ -13,7 +13,7 @@ if __name__ == "__main__":
     seed_everything(42, workers=True)
 
     # Params
-    checkpoint_path = "checkpoints/google/flan-t5-base-batch4-v20.ckpt"
+    checkpoint_path = "checkpoints/google/flan-t5-base-batch4.ckpt"
 
     # Logger
     with open("./config/config.json", "r") as jsonfile:
