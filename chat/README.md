@@ -6,4 +6,4 @@ All experiments were conducted on the GPU Hub from HSLU. For maximum reproducibi
 
 To install all required python packages for training, run the following command:
 
-``pip install torch datasets transformers evaluate wandb pytorch-lightning peft scikit-klearn rouge_score``
+``pip install torch datasets transformers evaluate wandb pytorch-lightning peft scikit-learn rouge_score``
