@@ -6,4 +6,4 @@ All experiments were conducted on the GPU Hub from HSLU. For maximum reproducibi
 
 To install all required python packages for training, run the following command:
 
-``pip install datasets transformers evaluate wandb pytorch-lightning``
+``pip install torch datasets transformers evaluate wandb pytorch-lightning``
