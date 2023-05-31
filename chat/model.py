@@ -4,7 +4,7 @@ from datasets import load_dataset
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-from peft import LoraConfig, get_peft_model, prepare_model_for_int8_training, TaskType
+from peft import LoraConfig, get_peft_model, TaskType
 from sklearn.model_selection import train_test_split
 
 
